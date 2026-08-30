@@ -82,6 +82,7 @@ public:
   template <typename T>
   void write(uint32_t addr, const T& obj) {
     *this->at<T>(addr) = obj;
+    this->note_write(addr, sizeof(T));
   }
 
   inline std::string read(uint32_t addr, size_t size) const {
@@ -233,12 +234,14 @@ public:
   }
 
   inline void memcpy(uint32_t addr, const void* src, size_t size) {
+    this->note_write(addr, size);
     ::memcpy(this->at<void>(addr, size), src, size);
   }
   inline void memcpy(void* addr, uint32_t src, size_t size) const {
     ::memcpy(addr, this->at<void>(src, size), size);
   }
   inline void memcpy(uint32_t addr, uint32_t src, size_t size) {
+    this->note_write(addr, size);
     ::memcpy(this->at<void>(addr, size), this->at<void>(src, size), size);
   }
   inline int memcmp(uint32_t addr, const void* src, size_t size) const {
@@ -251,6 +254,7 @@ public:
     return ::memcmp(this->at<void>(addr, size), this->at<void>(src, size), size);
   }
   inline void memset(uint32_t addr, uint8_t v, size_t size) {
+    this->note_write(addr, size);
     ::memset(this->at<void>(addr, size), v, size);
   }
 
@@ -281,6 +285,17 @@ public:
   const std::unordered_map<std::string, uint32_t> all_symbols() const;
 
   size_t get_page_size() const;
+
+  inline uint32_t page_write_gen(uint32_t addr) const {
+    return this->page_write_gens[this->page_number_for_addr(addr)];
+  }
+  inline void note_write(uint32_t addr, size_t size) {
+    size_t p0 = this->page_number_for_addr(addr);
+    size_t p1 = this->page_number_for_addr(addr + (size ? size - 1 : 0));
+    for (size_t p = p0; p <= p1; p++) {
+      this->page_write_gens[p]++;
+    }
+  }
 
   inline void set_strict(bool strict) {
     this->strict = strict;
@@ -338,6 +353,12 @@ private:
   std::map<uint32_t, Arena> arenas_by_addr; // This map owns the arenas; the following two reference these objects
   std::map<const void*, Arena*> arenas_by_host_addr;
   std::vector<Arena*> arena_for_page_number;
+  // Bumped for every page touched by write<T>/memcpy/memset. Consumers (the
+  // emulators' decode caches) snapshot a page's generation at decode time and
+  // treat any change as an invalidation. Writes made through raw at<T>()
+  // pointers are NOT tracked; emulator-visible code must be patched through
+  // the write helpers for decode caches to observe it.
+  std::vector<uint32_t> page_write_gens;
 
   std::unordered_map<std::string, uint32_t> symbol_addrs;
   std::unordered_map<uint32_t, std::string> addr_symbols;

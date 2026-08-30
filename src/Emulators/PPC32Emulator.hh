@@ -192,6 +192,20 @@ private:
   Regs regs;
   std::deque<uint64_t> time_overrides;
 
+  // Direct-mapped decode cache: skips the opcode fetch (page lookup + byteswap)
+  // and primary dispatch-table load for PCs executed before. Entries are
+  // validated against MemoryContext::page_write_gen, so any write to the
+  // page through the mem-context write helpers (guest stores, host patches)
+  // invalidates affected entries.
+  struct DecodeCacheEntry {
+    uint32_t tag = 0xFFFFFFFF; // pc (word-aligned; 0xFFFFFFFF = empty)
+    uint32_t gen = 0;
+    uint32_t op = 0;
+    void (PPC32Emulator::*exec)(uint32_t) = nullptr;
+  };
+  static constexpr size_t DECODE_CACHE_ENTRIES = 1 << 16;
+  std::vector<DecodeCacheEntry> decode_cache;
+
   std::function<void(PPC32Emulator&)> syscall_handler;
   std::function<void(PPC32Emulator&)> debug_hook;
   std::shared_ptr<InterruptManager> interrupt_manager;
