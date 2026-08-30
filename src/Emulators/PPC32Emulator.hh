@@ -8,6 +8,7 @@
 #include <memory>
 #include <phosg/Strings.hh>
 #include <set>
+#include <unordered_set>
 #include <vector>
 
 #include "EmulatorBase.hh"
@@ -205,6 +206,51 @@ private:
   };
   static constexpr size_t DECODE_CACHE_ENTRIES = 1 << 16;
   std::vector<DecodeCacheEntry> decode_cache;
+
+  // Basic-block execution engine (opt-in via set_block_execution). Straight-line
+  // runs of instructions are decoded ONCE into a block (ending at any
+  // pc-modifying primary opcode: bc/sc/b/4C-group) and executed in a tight loop;
+  // the debug hook and interrupt manager run per BLOCK ENTRY instead of per
+  // instruction. This preserves host semantics when every hook duty is keyed to
+  // a branch-target pc (native-call sentinels, function-entry triggers), which
+  // is the After Dark host contract; hosts with per-instruction tracing armed
+  // should leave block mode off. Blocks are invalidated by the same per-page
+  // write generations as the decode cache. Constraint: a store that modifies
+  // LATER instructions of the CURRENTLY executing block takes effect at the
+  // next block entry, not mid-block (classic interpreters refetch per
+  // instruction); code that does this must not enable block mode.
+  struct BlockInsn {
+    void (PPC32Emulator::*fn)(uint32_t);
+    uint32_t op;
+  };
+  struct BlockEntry {
+    uint32_t start_pc = 0xFFFFFFFF;
+    uint32_t end_addr = 0;
+    uint32_t gen0 = 0;
+    uint32_t gen1 = 0;
+    std::vector<BlockInsn> insns;
+  };
+  static constexpr size_t BLOCK_CACHE_ENTRIES = 1 << 14;
+  static constexpr size_t MAX_BLOCK_INSNS = 16;
+  std::vector<BlockEntry> block_cache;
+  bool block_execution = false;
+  // PCs the host's debug hook keys duties to that are NOT branch targets
+  // (mid-function convergence points). Blocks end before these, so they are
+  // always block entries and the per-block hook runs there.
+  std::unordered_set<uint32_t> block_boundary_pcs;
+  void build_block(BlockEntry& b, uint32_t pc);
+  void execute_blocks();
+
+public:
+  inline void set_block_execution(bool on) {
+    this->block_execution = on;
+  }
+  inline void add_block_boundary_pc(uint32_t pc) {
+    this->block_boundary_pcs.emplace(pc);
+    this->block_cache.clear();   // drop blocks that may span the new boundary
+  }
+
+private:
 
   std::function<void(PPC32Emulator&)> syscall_handler;
   std::function<void(PPC32Emulator&)> debug_hook;
