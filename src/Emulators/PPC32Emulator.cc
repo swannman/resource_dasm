@@ -6140,9 +6140,90 @@ void PPC32Emulator::execute() {
     this->interrupt_manager = std::make_shared<InterruptManager>();
   }
 
+  if (this->block_execution) {
+    this->execute_blocks();
+    return;
+  }
+
   for (;;) {
     try {
       this->execute_one();
+    } catch (const terminate_emulation&) {
+      break;
+    }
+  }
+}
+
+void PPC32Emulator::build_block(BlockEntry& b, uint32_t pc) {
+  b.insns.clear();
+  b.start_pc = pc;
+  uint32_t p = pc;
+  for (size_t n = 0; n < MAX_BLOCK_INSNS; n++) {
+    if (n != 0 && !this->block_boundary_pcs.empty() && this->block_boundary_pcs.count(p)) {
+      break;   // registered hook pc: end the block so it becomes a block entry
+    }
+    uint32_t op;
+    try {
+      op = this->mem->read<phosg::be_uint32_t>(p);
+    } catch (...) {
+      if (n == 0) {
+        b.start_pc = 0xFFFFFFFF;   // leave the entry invalid
+        throw;   // pc itself unfetchable — identical to the classic fetch fault
+      }
+      // Speculative read-ahead hit unmapped/unreadable memory. END the block
+      // here instead of faulting: the classic loop would only fault if
+      // execution actually reached this pc, WITH the earlier instructions'
+      // side effects applied — which re-entering at this pc reproduces.
+      break;
+    }
+    b.insns.push_back({PPC32Emulator::resolve_exec(op), op});
+    uint8_t prim = op_get_op(op);
+    p += 4;
+    // Any primary opcode that can modify pc ends the block: bc (0x10), sc
+    // (0x11), b (0x12), and the 0x13 group (bclr/bcctr/rfi/...).
+    if (prim >= 0x10 && prim <= 0x13) {
+      break;
+    }
+  }
+  b.end_addr = p - 4;
+  b.gen0 = this->mem->page_write_gen(b.start_pc);
+  b.gen1 = this->mem->page_write_gen(b.end_addr);
+}
+
+void PPC32Emulator::execute_blocks() {
+  if (this->block_cache.empty()) {
+    this->block_cache.resize(BLOCK_CACHE_ENTRIES);
+  }
+  for (;;) {
+    try {
+      for (;;) {
+        if (this->debug_hook) {
+          // Exactly ONCE per block entry — matching the classic loop, where a
+          // hook that retargets pc (native-call dispatch) is followed by the
+          // fetch/execute at the NEW pc without the hook running there first.
+          // (A retry-until-stable loop here is UNFAITHFUL and can spin forever
+          // when a wild lr points back into the sentinel range.)
+          this->debug_hook(*this);
+        }
+        if (this->interrupt_manager) {
+          this->interrupt_manager->on_cycle_start();
+        }
+        uint32_t pc = this->regs.pc;
+        auto& b = this->block_cache[(pc >> 2) & (BLOCK_CACHE_ENTRIES - 1)];
+        if (b.start_pc != pc ||
+            b.gen0 != this->mem->page_write_gen(pc) ||
+            b.gen1 != this->mem->page_write_gen(b.end_addr)) {
+          this->build_block(b, pc);
+        }
+        size_t count = b.insns.size();
+        const BlockInsn* insns = b.insns.data();
+        for (size_t i = 0; i < count; i++) {
+          (this->*insns[i].fn)(insns[i].op);
+          this->regs.pc += 4;
+          this->regs.tbr += this->regs.tbr_ticks_per_cycle;
+          this->instructions_executed++;
+        }
+      }
     } catch (const terminate_emulation&) {
       break;
     }
