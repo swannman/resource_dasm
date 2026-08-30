@@ -1363,47 +1363,7 @@ uint32_t PPC32Emulator::Assembler::asm_b_mnemonic(const StreamItem& si) {
 }
 
 void PPC32Emulator::exec_4C(uint32_t op) {
-  switch (op_get_subopcode(op)) {
-    case 0x000:
-      this->exec_4C_000_mcrf(op);
-      break;
-    case 0x010:
-    case 0x210:
-      this->exec_4C_010_bclr_4C_210_bcctr(op);
-      break;
-    case 0x021:
-      this->exec_4C_021_crnor(op);
-      break;
-    case 0x032:
-      this->exec_4C_032_rfi(op);
-      break;
-    case 0x081:
-      this->exec_4C_081_crandc(op);
-      break;
-    case 0x096:
-      this->exec_4C_096_isync(op);
-      break;
-    case 0x0C1:
-      this->exec_4C_0C1_crxor(op);
-      break;
-    case 0x0E1:
-      this->exec_4C_0E1_crnand(op);
-      break;
-    case 0x101:
-      this->exec_4C_101_crand(op);
-      break;
-    case 0x121:
-      this->exec_4C_121_creqv(op);
-      break;
-    case 0x1A1:
-      this->exec_4C_1A1_crorc(op);
-      break;
-    case 0x1C1:
-      this->exec_4C_1C1_cror(op);
-      break;
-    default:
-      throw std::runtime_error("invalid 4C subopcode");
-  }
+  (this->*PPC32Emulator::resolve_exec_4C(op))(op);
 }
 
 std::string PPC32Emulator::dasm_4C(DisassemblyState& s, uint32_t op) {
@@ -2058,301 +2018,7 @@ uint32_t PPC32Emulator::Assembler::asm_andis_rec(const StreamItem& si) {
 }
 
 void PPC32Emulator::exec_7C(uint32_t op) {
-  switch (op_get_subopcode(op)) {
-    case 0x000:
-      this->exec_7C_000_cmp(op);
-      break;
-    case 0x004:
-      this->exec_7C_004_tw(op);
-      break;
-    case 0x008:
-      this->exec_7C_008_208_subfc(op);
-      break;
-    case 0x00A:
-      this->exec_7C_00A_20A_addc(op);
-      break;
-    case 0x00B:
-      this->exec_7C_00B_mulhwu(op);
-      break;
-    case 0x013:
-      this->exec_7C_013_mfcr(op);
-      break;
-    case 0x014:
-      this->exec_7C_014_lwarx(op);
-      break;
-    case 0x017:
-      this->exec_7C_017_lwzx(op);
-      break;
-    case 0x018:
-      this->exec_7C_018_slw(op);
-      break;
-    case 0x01A:
-      this->exec_7C_01A_cntlzw(op);
-      break;
-    case 0x01C:
-      this->exec_7C_01C_and(op);
-      break;
-    case 0x020:
-      this->exec_7C_020_cmpl(op);
-      break;
-    case 0x028:
-      this->exec_7C_028_228_subf(op);
-      break;
-    case 0x036:
-      this->exec_7C_036_dcbst(op);
-      break;
-    case 0x037:
-      this->exec_7C_037_lwzux(op);
-      break;
-    case 0x03C:
-      this->exec_7C_03C_andc(op);
-      break;
-    case 0x04B:
-      this->exec_7C_04B_mulhw(op);
-      break;
-    case 0x053:
-      this->exec_7C_053_mfmsr(op);
-      break;
-    case 0x056:
-      this->exec_7C_056_dcbf(op);
-      break;
-    case 0x057:
-      this->exec_7C_057_lbzx(op);
-      break;
-    case 0x068:
-    case 0x268:
-      this->exec_7C_068_268_neg(op);
-      break;
-    case 0x077:
-      this->exec_7C_077_lbzux(op);
-      break;
-    case 0x07C:
-      this->exec_7C_07C_nor(op);
-      break;
-    case 0x088:
-    case 0x288:
-      this->exec_7C_088_288_subfe(op);
-      break;
-    case 0x08A:
-    case 0x28A:
-      this->exec_7C_08A_28A_adde(op);
-      break;
-    case 0x090:
-      this->exec_7C_090_mtcrf(op);
-      break;
-    case 0x092:
-      this->exec_7C_092_mtmsr(op);
-      break;
-    case 0x096:
-      this->exec_7C_096_stwcx_rec(op);
-      break;
-    case 0x097:
-      this->exec_7C_097_stwx(op);
-      break;
-    case 0x0B7:
-      this->exec_7C_0B7_stwux(op);
-      break;
-    case 0x0C8:
-    case 0x2C8:
-      this->exec_7C_0C8_2C8_subfze(op);
-      break;
-    case 0x0CA:
-    case 0x2CA:
-      this->exec_7C_0CA_2CA_addze(op);
-      break;
-    case 0x0D2:
-      this->exec_7C_0D2_mtsr(op);
-      break;
-    case 0x0D7:
-      this->exec_7C_0D7_stbx(op);
-      break;
-    case 0x0E8:
-    case 0x2E8:
-      this->exec_7C_0E8_2E8_subfme(op);
-      break;
-    case 0x0EA:
-    case 0x2EA:
-      this->exec_7C_0EA_2EA_addme(op);
-      break;
-    case 0x0EB:
-    case 0x2EB:
-      this->exec_7C_0EB_2EB_mullw(op);
-      break;
-    case 0x0F2:
-      this->exec_7C_0F2_mtsrin(op);
-      break;
-    case 0x0F6:
-      this->exec_7C_0F6_dcbtst(op);
-      break;
-    case 0x0F7:
-      this->exec_7C_0F7_stbux(op);
-      break;
-    case 0x10A:
-    case 0x30A:
-      this->exec_7C_10A_30A_add(op);
-      break;
-    case 0x116:
-      this->exec_7C_116_dcbt(op);
-      break;
-    case 0x117:
-      this->exec_7C_117_lhzx(op);
-      break;
-    case 0x11C:
-      this->exec_7C_11C_eqv(op);
-      break;
-    case 0x132:
-      this->exec_7C_132_tlbie(op);
-      break;
-    case 0x136:
-      this->exec_7C_136_eciwx(op);
-      break;
-    case 0x137:
-      this->exec_7C_137_lhzux(op);
-      break;
-    case 0x13C:
-      this->exec_7C_13C_xor(op);
-      break;
-    case 0x153:
-      this->exec_7C_153_mfspr(op);
-      break;
-    case 0x157:
-      this->exec_7C_157_lhax(op);
-      break;
-    case 0x172:
-      this->exec_7C_172_tlbia(op);
-      break;
-    case 0x173:
-      this->exec_7C_173_mftb(op);
-      break;
-    case 0x177:
-      this->exec_7C_177_lhaux(op);
-      break;
-    case 0x197:
-      this->exec_7C_197_sthx(op);
-      break;
-    case 0x19C:
-      this->exec_7C_19C_orc(op);
-      break;
-    case 0x1B6:
-      this->exec_7C_1B6_ecowx(op);
-      break;
-    case 0x1B7:
-      this->exec_7C_1B7_sthux(op);
-      break;
-    case 0x1BC:
-      this->exec_7C_1BC_or(op);
-      break;
-    case 0x1CB:
-    case 0x3CB:
-      this->exec_7C_1CB_3CB_divwu(op);
-      break;
-    case 0x1D3:
-      this->exec_7C_1D3_mtspr(op);
-      break;
-    case 0x1D6:
-      this->exec_7C_1D6_dcbi(op);
-      break;
-    case 0x1DC:
-      this->exec_7C_1DC_nand(op);
-      break;
-    case 0x1EB:
-    case 0x3EB:
-      this->exec_7C_1EB_3EB_divw(op);
-      break;
-    case 0x200:
-      this->exec_7C_200_mcrxr(op);
-      break;
-    case 0x215:
-      this->exec_7C_215_lswx(op);
-      break;
-    case 0x216:
-      this->exec_7C_216_lwbrx(op);
-      break;
-    case 0x217:
-      this->exec_7C_217_lfsx(op);
-      break;
-    case 0x218:
-      this->exec_7C_218_srw(op);
-      break;
-    case 0x236:
-      this->exec_7C_236_tlbsync(op);
-      break;
-    case 0x237:
-      this->exec_7C_237_lfsux(op);
-      break;
-    case 0x253:
-      this->exec_7C_253_mfsr(op);
-      break;
-    case 0x255:
-      this->exec_7C_255_lswi(op);
-      break;
-    case 0x256:
-      this->exec_7C_256_sync(op);
-      break;
-    case 0x257:
-      this->exec_7C_257_lfdx(op);
-      break;
-    case 0x277:
-      this->exec_7C_277_lfdux(op);
-      break;
-    case 0x293:
-      this->exec_7C_293_mfsrin(op);
-      break;
-    case 0x295:
-      this->exec_7C_295_stswx(op);
-      break;
-    case 0x296:
-      this->exec_7C_296_stwbrx(op);
-      break;
-    case 0x297:
-      this->exec_7C_297_stfsx(op);
-      break;
-    case 0x2B7:
-      this->exec_7C_2B7_stfsux(op);
-      break;
-    case 0x2E5:
-      this->exec_7C_2E5_stswi(op);
-      break;
-    case 0x2D7:
-      this->exec_7C_2D7_stfdx(op);
-      break;
-    case 0x2F6:
-      this->exec_7C_2F6_dcba(op);
-      break;
-    case 0x2F7:
-      this->exec_7C_2F7_stfdux(op);
-      break;
-    case 0x316:
-      this->exec_7C_316_lhbrx(op);
-      break;
-    case 0x318:
-    case 0x338:
-      this->exec_7C_318_338_sraw_srawi(op);
-      break;
-    case 0x356:
-      this->exec_7C_356_eieio(op);
-      break;
-    case 0x396:
-      this->exec_7C_396_sthbrx(op);
-      break;
-    case 0x39A:
-      this->exec_7C_39A_extsh(op);
-      break;
-    case 0x3BA:
-      this->exec_7C_3BA_extsb(op);
-      break;
-    case 0x3D6:
-      this->exec_7C_3D6_icbi(op);
-      break;
-    case 0x3D7:
-      this->exec_7C_3D7_stfiwx(op);
-      break;
-    case 0x3F6:
-      this->exec_7C_3F6_dcbz(op);
-      break;
-    default:
-      throw std::runtime_error("invalid 7C subopcode");
-  }
+  (this->*PPC32Emulator::resolve_exec_7C(op))(op);
 }
 
 std::string PPC32Emulator::dasm_7C(DisassemblyState& s, uint32_t op) {
@@ -4974,40 +4640,7 @@ uint32_t PPC32Emulator::Assembler::asm_stfdu(const StreamItem& si) {
 }
 
 void PPC32Emulator::exec_EC(uint32_t op) {
-  switch (op_get_short_subopcode(op)) {
-    case 0x12:
-      this->exec_EC_12_fdivs(op);
-      break;
-    case 0x14:
-      this->exec_EC_14_fsubs(op);
-      break;
-    case 0x15:
-      this->exec_EC_15_fadds(op);
-      break;
-    case 0x16:
-      this->exec_EC_16_fsqrts(op);
-      break;
-    case 0x18:
-      this->exec_EC_18_fres(op);
-      break;
-    case 0x19:
-      this->exec_EC_19_fmuls(op);
-      break;
-    case 0x1C:
-      this->exec_EC_1C_fmsubs(op);
-      break;
-    case 0x1D:
-      this->exec_EC_1D_fmadds(op);
-      break;
-    case 0x1E:
-      this->exec_EC_1E_fnmsubs(op);
-      break;
-    case 0x1F:
-      this->exec_EC_1F_fnmadds(op);
-      break;
-    default:
-      throw std::runtime_error("invalid EC subopcode");
-  }
+  (this->*PPC32Emulator::resolve_exec_EC(op))(op);
 }
 
 std::string PPC32Emulator::dasm_EC(DisassemblyState& s, uint32_t op) {
@@ -5243,92 +4876,7 @@ uint32_t PPC32Emulator::Assembler::asm_fnmadds(const StreamItem& si) {
 }
 
 void PPC32Emulator::exec_FC(uint32_t op) {
-  uint8_t short_sub = op_get_short_subopcode(op);
-  if (short_sub & 0x10) {
-    switch (short_sub) {
-      case 0x12:
-        this->exec_FC_12_fdiv(op);
-        break;
-      case 0x14:
-        this->exec_FC_14_fsub(op);
-        break;
-      case 0x15:
-        this->exec_FC_15_fadd(op);
-        break;
-      case 0x16:
-        this->exec_FC_16_fsqrt(op);
-        break;
-      case 0x17:
-        this->exec_FC_17_fsel(op);
-        break;
-      case 0x19:
-        this->exec_FC_19_fmul(op);
-        break;
-      case 0x1A:
-        this->exec_FC_1A_frsqrte(op);
-        break;
-      case 0x1C:
-        this->exec_FC_1C_fmsub(op);
-        break;
-      case 0x1D:
-        this->exec_FC_1D_fmadd(op);
-        break;
-      case 0x1E:
-        this->exec_FC_1E_fnmsub(op);
-        break;
-      case 0x1F:
-        this->exec_FC_1F_fnmadd(op);
-        break;
-      default:
-        throw std::runtime_error("invalid FC subopcode");
-    }
-  } else {
-    switch (op_get_subopcode(op)) {
-      case 0x000:
-      case 0x020:
-        this->exec_FC_000_020_fcmpu_fcmpo(op);
-        break;
-      case 0x00C:
-        this->exec_FC_00C_frsp(op);
-        break;
-      case 0x00E:
-      case 0x00F:
-        this->exec_FC_00E_00F_fctiw_fctiwz(op);
-        break;
-      case 0x026:
-        this->exec_FC_026_mtfsb1(op);
-        break;
-      case 0x028:
-        this->exec_FC_028_fneg(op);
-        break;
-      case 0x040:
-        this->exec_FC_040_mcrfs(op);
-        break;
-      case 0x046:
-        this->exec_FC_046_mtfsb0(op);
-        break;
-      case 0x048:
-        this->exec_FC_048_fmr(op);
-        break;
-      case 0x086:
-        this->exec_FC_086_mtfsfi(op);
-        break;
-      case 0x088:
-        this->exec_FC_088_fnabs(op);
-        break;
-      case 0x108:
-        this->exec_FC_108_fabs(op);
-        break;
-      case 0x247:
-        this->exec_FC_247_mffs(op);
-        break;
-      case 0x2C7:
-        this->exec_FC_2C7_mtfsf(op);
-        break;
-      default:
-        throw std::runtime_error("invalid FC subopcode");
-    }
-  }
+  (this->*PPC32Emulator::resolve_exec_FC(op))(op);
 }
 
 std::string PPC32Emulator::dasm_FC(DisassemblyState& s, uint32_t op) {
@@ -6575,7 +6123,7 @@ void PPC32Emulator::execute_one() {
     fn = ent.exec;
   } else {
     full_op = this->mem->read<phosg::be_uint32_t>(pc);
-    fn = this->fns[op_get_op(full_op)].exec;
+    fn = PPC32Emulator::resolve_exec(full_op);
     ent.tag = pc;
     ent.gen = gen;
     ent.op = full_op;
@@ -6599,6 +6147,353 @@ void PPC32Emulator::execute() {
       break;
     }
   }
+}
+
+PPC32Emulator::ExecFn PPC32Emulator::resolve_exec_7C(uint32_t op) {
+  switch (op_get_subopcode(op)) {
+    case 0x000:
+      return &PPC32Emulator::exec_7C_000_cmp;
+    case 0x004:
+      return &PPC32Emulator::exec_7C_004_tw;
+    case 0x008:
+      return &PPC32Emulator::exec_7C_008_208_subfc;
+    case 0x00A:
+      return &PPC32Emulator::exec_7C_00A_20A_addc;
+    case 0x00B:
+      return &PPC32Emulator::exec_7C_00B_mulhwu;
+    case 0x013:
+      return &PPC32Emulator::exec_7C_013_mfcr;
+    case 0x014:
+      return &PPC32Emulator::exec_7C_014_lwarx;
+    case 0x017:
+      return &PPC32Emulator::exec_7C_017_lwzx;
+    case 0x018:
+      return &PPC32Emulator::exec_7C_018_slw;
+    case 0x01A:
+      return &PPC32Emulator::exec_7C_01A_cntlzw;
+    case 0x01C:
+      return &PPC32Emulator::exec_7C_01C_and;
+    case 0x020:
+      return &PPC32Emulator::exec_7C_020_cmpl;
+    case 0x028:
+      return &PPC32Emulator::exec_7C_028_228_subf;
+    case 0x036:
+      return &PPC32Emulator::exec_7C_036_dcbst;
+    case 0x037:
+      return &PPC32Emulator::exec_7C_037_lwzux;
+    case 0x03C:
+      return &PPC32Emulator::exec_7C_03C_andc;
+    case 0x04B:
+      return &PPC32Emulator::exec_7C_04B_mulhw;
+    case 0x053:
+      return &PPC32Emulator::exec_7C_053_mfmsr;
+    case 0x056:
+      return &PPC32Emulator::exec_7C_056_dcbf;
+    case 0x057:
+      return &PPC32Emulator::exec_7C_057_lbzx;
+    case 0x068:
+    case 0x268:
+      return &PPC32Emulator::exec_7C_068_268_neg;
+    case 0x077:
+      return &PPC32Emulator::exec_7C_077_lbzux;
+    case 0x07C:
+      return &PPC32Emulator::exec_7C_07C_nor;
+    case 0x088:
+    case 0x288:
+      return &PPC32Emulator::exec_7C_088_288_subfe;
+    case 0x08A:
+    case 0x28A:
+      return &PPC32Emulator::exec_7C_08A_28A_adde;
+    case 0x090:
+      return &PPC32Emulator::exec_7C_090_mtcrf;
+    case 0x092:
+      return &PPC32Emulator::exec_7C_092_mtmsr;
+    case 0x096:
+      return &PPC32Emulator::exec_7C_096_stwcx_rec;
+    case 0x097:
+      return &PPC32Emulator::exec_7C_097_stwx;
+    case 0x0B7:
+      return &PPC32Emulator::exec_7C_0B7_stwux;
+    case 0x0C8:
+    case 0x2C8:
+      return &PPC32Emulator::exec_7C_0C8_2C8_subfze;
+    case 0x0CA:
+    case 0x2CA:
+      return &PPC32Emulator::exec_7C_0CA_2CA_addze;
+    case 0x0D2:
+      return &PPC32Emulator::exec_7C_0D2_mtsr;
+    case 0x0D7:
+      return &PPC32Emulator::exec_7C_0D7_stbx;
+    case 0x0E8:
+    case 0x2E8:
+      return &PPC32Emulator::exec_7C_0E8_2E8_subfme;
+    case 0x0EA:
+    case 0x2EA:
+      return &PPC32Emulator::exec_7C_0EA_2EA_addme;
+    case 0x0EB:
+    case 0x2EB:
+      return &PPC32Emulator::exec_7C_0EB_2EB_mullw;
+    case 0x0F2:
+      return &PPC32Emulator::exec_7C_0F2_mtsrin;
+    case 0x0F6:
+      return &PPC32Emulator::exec_7C_0F6_dcbtst;
+    case 0x0F7:
+      return &PPC32Emulator::exec_7C_0F7_stbux;
+    case 0x10A:
+    case 0x30A:
+      return &PPC32Emulator::exec_7C_10A_30A_add;
+    case 0x116:
+      return &PPC32Emulator::exec_7C_116_dcbt;
+    case 0x117:
+      return &PPC32Emulator::exec_7C_117_lhzx;
+    case 0x11C:
+      return &PPC32Emulator::exec_7C_11C_eqv;
+    case 0x132:
+      return &PPC32Emulator::exec_7C_132_tlbie;
+    case 0x136:
+      return &PPC32Emulator::exec_7C_136_eciwx;
+    case 0x137:
+      return &PPC32Emulator::exec_7C_137_lhzux;
+    case 0x13C:
+      return &PPC32Emulator::exec_7C_13C_xor;
+    case 0x153:
+      return &PPC32Emulator::exec_7C_153_mfspr;
+    case 0x157:
+      return &PPC32Emulator::exec_7C_157_lhax;
+    case 0x172:
+      return &PPC32Emulator::exec_7C_172_tlbia;
+    case 0x173:
+      return &PPC32Emulator::exec_7C_173_mftb;
+    case 0x177:
+      return &PPC32Emulator::exec_7C_177_lhaux;
+    case 0x197:
+      return &PPC32Emulator::exec_7C_197_sthx;
+    case 0x19C:
+      return &PPC32Emulator::exec_7C_19C_orc;
+    case 0x1B6:
+      return &PPC32Emulator::exec_7C_1B6_ecowx;
+    case 0x1B7:
+      return &PPC32Emulator::exec_7C_1B7_sthux;
+    case 0x1BC:
+      return &PPC32Emulator::exec_7C_1BC_or;
+    case 0x1CB:
+    case 0x3CB:
+      return &PPC32Emulator::exec_7C_1CB_3CB_divwu;
+    case 0x1D3:
+      return &PPC32Emulator::exec_7C_1D3_mtspr;
+    case 0x1D6:
+      return &PPC32Emulator::exec_7C_1D6_dcbi;
+    case 0x1DC:
+      return &PPC32Emulator::exec_7C_1DC_nand;
+    case 0x1EB:
+    case 0x3EB:
+      return &PPC32Emulator::exec_7C_1EB_3EB_divw;
+    case 0x200:
+      return &PPC32Emulator::exec_7C_200_mcrxr;
+    case 0x215:
+      return &PPC32Emulator::exec_7C_215_lswx;
+    case 0x216:
+      return &PPC32Emulator::exec_7C_216_lwbrx;
+    case 0x217:
+      return &PPC32Emulator::exec_7C_217_lfsx;
+    case 0x218:
+      return &PPC32Emulator::exec_7C_218_srw;
+    case 0x236:
+      return &PPC32Emulator::exec_7C_236_tlbsync;
+    case 0x237:
+      return &PPC32Emulator::exec_7C_237_lfsux;
+    case 0x253:
+      return &PPC32Emulator::exec_7C_253_mfsr;
+    case 0x255:
+      return &PPC32Emulator::exec_7C_255_lswi;
+    case 0x256:
+      return &PPC32Emulator::exec_7C_256_sync;
+    case 0x257:
+      return &PPC32Emulator::exec_7C_257_lfdx;
+    case 0x277:
+      return &PPC32Emulator::exec_7C_277_lfdux;
+    case 0x293:
+      return &PPC32Emulator::exec_7C_293_mfsrin;
+    case 0x295:
+      return &PPC32Emulator::exec_7C_295_stswx;
+    case 0x296:
+      return &PPC32Emulator::exec_7C_296_stwbrx;
+    case 0x297:
+      return &PPC32Emulator::exec_7C_297_stfsx;
+    case 0x2B7:
+      return &PPC32Emulator::exec_7C_2B7_stfsux;
+    case 0x2E5:
+      return &PPC32Emulator::exec_7C_2E5_stswi;
+    case 0x2D7:
+      return &PPC32Emulator::exec_7C_2D7_stfdx;
+    case 0x2F6:
+      return &PPC32Emulator::exec_7C_2F6_dcba;
+    case 0x2F7:
+      return &PPC32Emulator::exec_7C_2F7_stfdux;
+    case 0x316:
+      return &PPC32Emulator::exec_7C_316_lhbrx;
+    case 0x318:
+    case 0x338:
+      return &PPC32Emulator::exec_7C_318_338_sraw_srawi;
+    case 0x356:
+      return &PPC32Emulator::exec_7C_356_eieio;
+    case 0x396:
+      return &PPC32Emulator::exec_7C_396_sthbrx;
+    case 0x39A:
+      return &PPC32Emulator::exec_7C_39A_extsh;
+    case 0x3BA:
+      return &PPC32Emulator::exec_7C_3BA_extsb;
+    case 0x3D6:
+      return &PPC32Emulator::exec_7C_3D6_icbi;
+    case 0x3D7:
+      return &PPC32Emulator::exec_7C_3D7_stfiwx;
+    case 0x3F6:
+      return &PPC32Emulator::exec_7C_3F6_dcbz;
+    default:
+      throw std::runtime_error("invalid 7C subopcode");
+  }
+}
+
+PPC32Emulator::ExecFn PPC32Emulator::resolve_exec_EC(uint32_t op) {
+  switch (op_get_short_subopcode(op)) {
+    case 0x12:
+      return &PPC32Emulator::exec_EC_12_fdivs;
+    case 0x14:
+      return &PPC32Emulator::exec_EC_14_fsubs;
+    case 0x15:
+      return &PPC32Emulator::exec_EC_15_fadds;
+    case 0x16:
+      return &PPC32Emulator::exec_EC_16_fsqrts;
+    case 0x18:
+      return &PPC32Emulator::exec_EC_18_fres;
+    case 0x19:
+      return &PPC32Emulator::exec_EC_19_fmuls;
+    case 0x1C:
+      return &PPC32Emulator::exec_EC_1C_fmsubs;
+    case 0x1D:
+      return &PPC32Emulator::exec_EC_1D_fmadds;
+    case 0x1E:
+      return &PPC32Emulator::exec_EC_1E_fnmsubs;
+    case 0x1F:
+      return &PPC32Emulator::exec_EC_1F_fnmadds;
+    default:
+      throw std::runtime_error("invalid EC subopcode");
+  }
+}
+
+PPC32Emulator::ExecFn PPC32Emulator::resolve_exec_FC(uint32_t op) {
+  uint8_t short_sub = op_get_short_subopcode(op);
+  if (short_sub & 0x10) {
+    switch (short_sub) {
+      case 0x12:
+        return &PPC32Emulator::exec_FC_12_fdiv;
+      case 0x14:
+        return &PPC32Emulator::exec_FC_14_fsub;
+      case 0x15:
+        return &PPC32Emulator::exec_FC_15_fadd;
+      case 0x16:
+        return &PPC32Emulator::exec_FC_16_fsqrt;
+      case 0x17:
+        return &PPC32Emulator::exec_FC_17_fsel;
+      case 0x19:
+        return &PPC32Emulator::exec_FC_19_fmul;
+      case 0x1A:
+        return &PPC32Emulator::exec_FC_1A_frsqrte;
+      case 0x1C:
+        return &PPC32Emulator::exec_FC_1C_fmsub;
+      case 0x1D:
+        return &PPC32Emulator::exec_FC_1D_fmadd;
+      case 0x1E:
+        return &PPC32Emulator::exec_FC_1E_fnmsub;
+      case 0x1F:
+        return &PPC32Emulator::exec_FC_1F_fnmadd;
+      default:
+        throw std::runtime_error("invalid FC subopcode");
+    }
+  } else {
+    switch (op_get_subopcode(op)) {
+      case 0x000:
+      case 0x020:
+        return &PPC32Emulator::exec_FC_000_020_fcmpu_fcmpo;
+      case 0x00C:
+        return &PPC32Emulator::exec_FC_00C_frsp;
+      case 0x00E:
+      case 0x00F:
+        return &PPC32Emulator::exec_FC_00E_00F_fctiw_fctiwz;
+      case 0x026:
+        return &PPC32Emulator::exec_FC_026_mtfsb1;
+      case 0x028:
+        return &PPC32Emulator::exec_FC_028_fneg;
+      case 0x040:
+        return &PPC32Emulator::exec_FC_040_mcrfs;
+      case 0x046:
+        return &PPC32Emulator::exec_FC_046_mtfsb0;
+      case 0x048:
+        return &PPC32Emulator::exec_FC_048_fmr;
+      case 0x086:
+        return &PPC32Emulator::exec_FC_086_mtfsfi;
+      case 0x088:
+        return &PPC32Emulator::exec_FC_088_fnabs;
+      case 0x108:
+        return &PPC32Emulator::exec_FC_108_fabs;
+      case 0x247:
+        return &PPC32Emulator::exec_FC_247_mffs;
+      case 0x2C7:
+        return &PPC32Emulator::exec_FC_2C7_mtfsf;
+      default:
+        throw std::runtime_error("invalid FC subopcode");
+    }
+  }
+}
+
+PPC32Emulator::ExecFn PPC32Emulator::resolve_exec_4C(uint32_t op) {
+  switch (op_get_subopcode(op)) {
+    case 0x000:
+      return &PPC32Emulator::exec_4C_000_mcrf;
+    case 0x010:
+    case 0x210:
+      return &PPC32Emulator::exec_4C_010_bclr_4C_210_bcctr;
+    case 0x021:
+      return &PPC32Emulator::exec_4C_021_crnor;
+    case 0x032:
+      return &PPC32Emulator::exec_4C_032_rfi;
+    case 0x081:
+      return &PPC32Emulator::exec_4C_081_crandc;
+    case 0x096:
+      return &PPC32Emulator::exec_4C_096_isync;
+    case 0x0C1:
+      return &PPC32Emulator::exec_4C_0C1_crxor;
+    case 0x0E1:
+      return &PPC32Emulator::exec_4C_0E1_crnand;
+    case 0x101:
+      return &PPC32Emulator::exec_4C_101_crand;
+    case 0x121:
+      return &PPC32Emulator::exec_4C_121_creqv;
+    case 0x1A1:
+      return &PPC32Emulator::exec_4C_1A1_crorc;
+    case 0x1C1:
+      return &PPC32Emulator::exec_4C_1C1_cror;
+    default:
+      throw std::runtime_error("invalid 4C subopcode");
+  }
+}
+
+// Decode-time resolution to the FINAL handler: the secondary dispatchers
+// (7C/EC/FC/4C subopcode switches) are folded into the decode cache, so a
+// cache hit jumps straight to the leaf implementation. Resolution compares
+// against the table's dispatcher pointers rather than hardcoding indices.
+PPC32Emulator::ExecFn PPC32Emulator::resolve_exec(uint32_t op) {
+  ExecFn fn = PPC32Emulator::fns[op_get_op(op)].exec;
+  if (fn == &PPC32Emulator::exec_7C) {
+    return resolve_exec_7C(op);
+  } else if (fn == &PPC32Emulator::exec_EC) {
+    return resolve_exec_EC(op);
+  } else if (fn == &PPC32Emulator::exec_FC) {
+    return resolve_exec_FC(op);
+  } else if (fn == &PPC32Emulator::exec_4C) {
+    return resolve_exec_4C(op);
+  }
+  return fn;
 }
 
 std::string PPC32Emulator::disassemble_one(uint32_t pc, uint32_t op) {
