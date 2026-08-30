@@ -6562,9 +6562,25 @@ void PPC32Emulator::execute_one() {
     this->interrupt_manager->on_cycle_start();
   }
 
-  uint32_t full_op = this->mem->read<phosg::be_uint32_t>(this->regs.pc);
-  uint8_t op = op_get_op(full_op);
-  auto fn = this->fns[op].exec;
+  uint32_t pc = this->regs.pc;
+  if (this->decode_cache.empty()) {
+    this->decode_cache.resize(DECODE_CACHE_ENTRIES);
+  }
+  auto& ent = this->decode_cache[(pc >> 2) & (DECODE_CACHE_ENTRIES - 1)];
+  uint32_t gen = this->mem->page_write_gen(pc);
+  uint32_t full_op;
+  void (PPC32Emulator::*fn)(uint32_t);
+  if (ent.tag == pc && ent.gen == gen) {
+    full_op = ent.op;
+    fn = ent.exec;
+  } else {
+    full_op = this->mem->read<phosg::be_uint32_t>(pc);
+    fn = this->fns[op_get_op(full_op)].exec;
+    ent.tag = pc;
+    ent.gen = gen;
+    ent.op = full_op;
+    ent.exec = fn;
+  }
   (this->*fn)(full_op);
   this->regs.pc += 4;
   this->regs.tbr += this->regs.tbr_ticks_per_cycle;

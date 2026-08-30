@@ -80,6 +80,7 @@ MemoryContext::MemoryContext()
 
   this->total_pages = (0x100000000 >> this->page_bits);
   this->arena_for_page_number.resize(this->total_pages, nullptr);
+  this->page_write_gens.assign(this->total_pages, 0);
 }
 
 MemoryContext::MemoryContext(MemoryContext&& other)
@@ -93,6 +94,7 @@ MemoryContext::MemoryContext(MemoryContext&& other)
       arenas_by_addr(std::move(other.arenas_by_addr)),
       arenas_by_host_addr(std::move(other.arenas_by_host_addr)),
       arena_for_page_number(std::move(other.arena_for_page_number)),
+      page_write_gens(std::move(other.page_write_gens)),
       symbol_addrs(std::move(other.symbol_addrs)),
       addr_symbols(other.addr_symbols) {
   other.size = 0;
@@ -112,6 +114,7 @@ MemoryContext& MemoryContext::operator=(MemoryContext&& other) {
   this->arenas_by_addr = std::move(other.arenas_by_addr);
   this->arenas_by_host_addr = std::move(other.arenas_by_host_addr);
   this->arena_for_page_number = std::move(other.arena_for_page_number);
+  this->page_write_gens = std::move(other.page_write_gens);
   this->symbol_addrs = std::move(other.symbol_addrs);
   this->addr_symbols = std::move(other.addr_symbols);
   other.size = 0;
