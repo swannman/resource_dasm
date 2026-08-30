@@ -223,6 +223,16 @@ private:
   };
   static const OpcodeImplementation fns[0x40];
 
+public:
+  using ExecFn = void (PPC32Emulator::*)(uint32_t);
+
+private:
+  static ExecFn resolve_exec(uint32_t op);
+  static ExecFn resolve_exec_7C(uint32_t op);
+  static ExecFn resolve_exec_EC(uint32_t op);
+  static ExecFn resolve_exec_FC(uint32_t op);
+  static ExecFn resolve_exec_4C(uint32_t op);
+
   static std::string disassemble_one(DisassemblyState& s, uint32_t op);
 
   bool should_branch(uint32_t op);
