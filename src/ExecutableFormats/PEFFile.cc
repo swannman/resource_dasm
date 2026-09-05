@@ -498,9 +498,15 @@ void PEFFile::load_into(const std::string& lib_name, std::shared_ptr<MemoryConte
       section_addr = mem->allocate(section.total_size);
     } else {
       section_addr = base_addr;
-      mem->allocate_at(section_addr, section.total_size);
+      // Round the BLOCK up to the page size, not just the next section's base:
+      // allocate_at page-rounds the arena, and an unpadded block leaves a free
+      // tail INSIDE the image arena that a correct best-fit allocator will
+      // happily hand out later — packing unrelated small allocations against
+      // (and interleaved with) loaded code/data images.
       size_t page_size = mem->get_page_size();
-      base_addr = (base_addr + section.total_size + (page_size - 1)) & (~(page_size - 1));
+      size_t padded_size = (section.total_size + (page_size - 1)) & (~(page_size - 1));
+      mem->allocate_at(section_addr, padded_size);
+      base_addr = base_addr + padded_size;
     }
     if (section_addr == 0) {
       throw std::runtime_error("cannot allocate memory for section");
