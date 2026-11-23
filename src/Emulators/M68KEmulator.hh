@@ -8,6 +8,8 @@
 #include <phosg/Strings.hh>
 #include <set>
 #include <string>
+#include <unordered_set>
+#include <vector>
 
 #include "EmulatorBase.hh"
 #include "InterruptManager.hh"
@@ -441,6 +443,34 @@ public:
   virtual void execute_one();
   virtual void execute();
 
+  // Cached execution (opt-in). execute() normally re-fetches and re-decodes every instruction through MemoryContext
+  // and the decoder's switch. With this enabled, each instruction is decoded ONCE into a cache entry keyed by pc (the
+  // handler to call plus its already-decoded operands) and later visits call the handler directly. Entries are
+  // validated by MemoryContext's per-page write generations, so guest stores, host patches made through the write
+  // helpers, and arena mapping changes all invalidate the affected instructions; a write through a raw at<T>()
+  // pointer does not, so code must not be patched that way while this is on.
+  //
+  // In this mode the debug hook runs at BLOCK ENTRIES instead of before every instruction: at the first instruction
+  // of each execute() call, after any instruction that can change pc (branches, jumps, calls, returns, traps, A-line
+  // and F-line opcodes, and anything that faults), and at every pc registered with add_block_boundary_pc. That
+  // preserves host semantics when every hook duty is keyed to a pc that is a control-flow target or a registered
+  // boundary. A host that needs the hook before every instruction again (single-stepping, tracing, a duty that counts
+  // hook calls) can ask for that with set_hook_every_instruction, which takes effect at the next instruction and keeps
+  // the decode cache; a hook that is exactly per-instruction makes this mode behave identically to the classic loop.
+  //
+  // The interrupt manager is still stepped once per instruction and cycles() still counts instructions, so anything
+  // scheduled by cycle count fires at exactly the same point as in the classic loop.
+  //
+  // set_block_execution is sampled when execute() is called. Encodings the decoder rejects, and instructions that
+  // cannot be fetched, are never cached: they run through the classic decoder, which reproduces the classic fault.
+  inline void set_block_execution(bool on) {
+    this->block_execution = on;
+  }
+  inline void set_hook_every_instruction(bool on) {
+    this->hook_every_instruction = on;
+  }
+  void add_block_boundary_pc(uint32_t pc);
+
 private:
   using DecodeReturnT = void;
 
@@ -620,6 +650,35 @@ private:
   void on_fsave(const DecodedAddress& addr);
   void on_frestore(const DecodedAddress& addr);
   void on_coprocessor(uint16_t opcode);
+
+  struct CachedOp {
+    uint32_t pc = 0xFFFFFFFF; // 0xFFFFFFFF = empty (pcs are even)
+    uint32_t next_pc = 0;
+    uint32_t last_addr = 0; // Address of the instruction's last byte (it may sit on a different page than pc)
+    uint32_t gen0 = 0; // Write generation of pc's page at decode time
+    uint32_t gen1 = 0; // Write generation of last_addr's page at decode time
+    bool ends_block = true; // The instruction can leave pc somewhere other than next_pc
+    uint8_t num_bytes = 0; // How many of the instruction's bytes are in bytes[] (0 if it is too long to keep)
+    void (*call)(M68KEmulator&, const CachedOp&) = nullptr; // nullptr = not cacheable; use the classic decoder
+    alignas(8) uint8_t args[80]; // The handler's decoded arguments (a trivially-copyable closure)
+    // The instruction as fetched. A page's write generation changes on ANY write to the page, and 68K programs
+    // routinely keep data (or their stack) on the same page as code, so a changed generation usually does not mean
+    // this instruction changed. Comparing its bytes then tells for certain, for far less than a re-decode.
+    uint8_t bytes[16];
+  };
+  struct OpRecorder;
+  static constexpr size_t OP_CACHE_ENTRIES = 1 << 16;
+  static constexpr size_t BOUNDARY_FILTER_ENTRIES = 1 << 16;
+  std::vector<CachedOp> op_cache;
+  bool block_execution = false;
+  bool hook_every_instruction = false;
+  // PCs the host's debug hook keys duties to that are not control-flow targets. The filter is a one-byte-per-slot
+  // presence table consulted before the exact set, so the common case costs one load.
+  std::unordered_set<uint32_t> block_boundary_pcs;
+  std::vector<uint8_t> block_boundary_filter;
+  void build_cached_op(CachedOp& op, uint32_t pc);
+  bool revalidate_cached_op(CachedOp& op);
+  void execute_blocks();
 
   struct ResolvedAddress {
     enum class Type {

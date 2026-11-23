@@ -218,6 +218,11 @@ add_test(
     COMMAND ${CMAKE_BINARY_DIR}/m68ktest --test-assemble-sh4)
 
 add_test(
+    NAME "block_execution_68k"
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMAND ${CMAKE_BINARY_DIR}/m68ktest --test-block-execution-68k)
+
+add_test(
     NAME "NOCOMMIT"
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMAND ${CMAKE_SOURCE_DIR}/nocommit.test.sh)

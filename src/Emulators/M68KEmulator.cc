@@ -10,6 +10,7 @@
 #include <phosg/Encoding.hh>
 #include <phosg/Filesystem.hh>
 #include <span>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 
@@ -4698,6 +4699,220 @@ std::string M68KEmulator::disassemble(
   return ret;
 }
 
+// Every execution handler, split by whether the instruction can leave pc anywhere other than just past itself. The
+// second list ends a block: the debug hook runs before whatever executes next. It deliberately errs on the side of
+// inclusion (anything that jumps, traps, raises an exception, or is privileged or unimplemented); listing a handler
+// there costs one extra hook call, while omitting one that changes pc would skip a hook the host is owed. A handler
+// missing from both lists is a compile error in OpRecorder below, so a new instruction cannot be silently uncached.
+#define M68K_SEQUENTIAL_HANDLERS(X) \
+  X(on_abcd) X(on_add_sub) X(on_adda_suba) X(on_addi) X(on_addq_subq) X(on_addx_subx) X(on_and) X(on_andi) \
+  X(on_andi_sr_imm) X(on_bf_ops) X(on_bit_shift_mem) X(on_bit_shift_reg) X(on_btst_bchg_bclr_bset) X(on_clr) \
+  X(on_cmp) X(on_cmpa) X(on_cmpi) X(on_cmpm) X(on_exg_a_a) X(on_exg_d_a) X(on_exg_d_d) X(on_ext_byte_long) \
+  X(on_ext_byte_word) X(on_ext_word_long) X(on_fabs) X(on_facos) X(on_fadd) X(on_fasin) X(on_fatan) X(on_fatanh) \
+  X(on_fcmp) X(on_fcos) X(on_fcosh) X(on_fdabs) X(on_fdadd) X(on_fddiv) X(on_fdiv) X(on_fdmove) X(on_fdmul) \
+  X(on_fdneg) X(on_fdsqrt) X(on_fdsub) X(on_fetox) X(on_fetoxm1) X(on_fgetexp) X(on_fgetman) X(on_fint) X(on_fintrz) \
+  X(on_flog10) X(on_flog2) X(on_flogn) X(on_flognp1) X(on_fmod) X(on_fmove) X(on_fmove_to_mem) X(on_fmovecr) \
+  X(on_fmovem_control_regs) X(on_fmovem_data_regs) X(on_fmul) X(on_fneg) X(on_frem) X(on_fsabs) X(on_fsadd) \
+  X(on_fscale) X(on_fscc) X(on_fsdiv) X(on_fsgldiv) X(on_fsglmul) X(on_fsin) X(on_fsincos) X(on_fsinh) X(on_fsmove) \
+  X(on_fsmul) X(on_fsneg) X(on_fsqrt) X(on_fssqrt) X(on_fssub) X(on_fsub) X(on_ftan) X(on_ftanh) X(on_ftentox) \
+  X(on_ftst) X(on_ftwotox) X(on_lea) X(on_link) X(on_move) X(on_move_ccr_src) X(on_move_dest_ccr) X(on_move_dest_sr) \
+  X(on_move_sr_src) X(on_movea) X(on_movem_read) X(on_movem_write) X(on_movep) X(on_moveq) X(on_muls_long) \
+  X(on_muls_word) X(on_mulu_long) X(on_mulu_word) X(on_nbcd) X(on_neg) X(on_negx) X(on_nop) X(on_not) X(on_or) \
+  X(on_ori) X(on_ori_sr_imm) X(on_pack) X(on_pea) X(on_sbcd) X(on_scc) X(on_subi) X(on_swap) X(on_tst) X(on_unlink) \
+  X(on_unpack) X(on_xor) X(on_xori) X(on_xori_sr_imm)
+#define M68K_BLOCK_ENDING_HANDLERS(X) \
+  X(on_bcc) X(on_bgnd) X(on_bkpt) X(on_bra) X(on_bsr) X(on_callm) X(on_cas) X(on_cas2) X(on_chk) X(on_chk2_cmp2) \
+  X(on_coprocessor) X(on_dbcc) X(on_divs_long) X(on_divs_word) X(on_divu_long) X(on_divu_word) X(on_fbcc) X(on_fdbcc) \
+  X(on_frestore) X(on_fsave) X(on_ftrapcc) X(on_illegal) X(on_jsr_jmp) X(on_move_usp) X(on_movec) X(on_moves) \
+  X(on_reset) X(on_rtd) X(on_rte) X(on_rtm) X(on_rtr) X(on_rts) X(on_stop) X(on_syscall) X(on_tas) X(on_trap) \
+  X(on_trapcc) X(on_trapv)
+
+// The visitor that decodes for the cache. It reads the instruction stream at its own cursor (leaving the emulator's
+// registers alone) and, instead of executing, records which handler the decoder chose and the arguments it passed.
+struct M68KEmulator::OpRecorder {
+  using DecodeReturnT = void;
+
+  M68KEmulator& emu;
+  uint32_t pc;
+  CachedOp& op;
+
+  size_t num_bytes = 0;
+
+  void keep_byte(uint8_t v) {
+    if (this->num_bytes < sizeof(CachedOp::bytes)) {
+      this->op.bytes[this->num_bytes] = v;
+    }
+    this->num_bytes++;
+  }
+  uint16_t read_ins_u16(uint8_t = 0) {
+    uint16_t ret = this->emu.mem->read<phosg::be_uint16_t>(this->pc);
+    this->pc += 2;
+    this->keep_byte(ret >> 8);
+    this->keep_byte(ret);
+    return ret;
+  }
+  int16_t read_ins_s16(uint8_t = 0) {
+    return static_cast<int16_t>(this->read_ins_u16());
+  }
+  uint32_t read_ins_u32(uint8_t = 0) {
+    uint32_t ret = this->emu.mem->read<phosg::be_uint32_t>(this->pc);
+    this->pc += 4;
+    this->keep_byte(ret >> 24);
+    this->keep_byte(ret >> 16);
+    this->keep_byte(ret >> 8);
+    this->keep_byte(ret);
+    return ret;
+  }
+  int32_t read_ins_s32(uint8_t = 0) {
+    return static_cast<int32_t>(this->read_ins_u32());
+  }
+  uint32_t read_pc() {
+    return this->pc;
+  }
+
+  template <typename ClosureT>
+  void record(ClosureT closure, bool ends_block) {
+    static_assert(sizeof(ClosureT) <= sizeof(CachedOp::args), "handler arguments do not fit in CachedOp::args");
+    static_assert(alignof(ClosureT) <= 8, "handler arguments are over-aligned for CachedOp::args");
+    static_assert(std::is_trivially_copyable_v<ClosureT>, "handler arguments must be trivially copyable");
+    static_assert(std::is_trivially_destructible_v<ClosureT>, "handler arguments must be trivially destructible");
+    ::memcpy(this->op.args, &closure, sizeof(ClosureT));
+    this->op.call = +[](M68KEmulator& e, const CachedOp& o) {
+      (*reinterpret_cast<const ClosureT*>(o.args))(e);
+    };
+    this->op.ends_block = ends_block;
+  }
+
+  // The decoder reports a bad encoding through on_invalid (sometimes with a pointer to one of its locals). Those are
+  // left uncached, so executing one re-runs the classic decoder and raises exactly the classic error.
+  template <typename... ArgTs>
+  void on_invalid(ArgTs...) {
+    this->op.call = nullptr;
+    this->op.ends_block = true;
+  }
+
+#define M68K_RECORD_SEQUENTIAL(name) \
+  template <typename... ArgTs> \
+  void name(ArgTs... args) { \
+    this->record([=](M68KEmulator& e) { e.name(args...); }, false); \
+  }
+#define M68K_RECORD_BLOCK_ENDING(name) \
+  template <typename... ArgTs> \
+  void name(ArgTs... args) { \
+    this->record([=](M68KEmulator& e) { e.name(args...); }, true); \
+  }
+  M68K_SEQUENTIAL_HANDLERS(M68K_RECORD_SEQUENTIAL)
+  M68K_BLOCK_ENDING_HANDLERS(M68K_RECORD_BLOCK_ENDING)
+#undef M68K_RECORD_SEQUENTIAL
+#undef M68K_RECORD_BLOCK_ENDING
+};
+
+void M68KEmulator::add_block_boundary_pc(uint32_t pc) {
+  if (this->block_boundary_filter.empty()) {
+    this->block_boundary_filter.assign(BOUNDARY_FILTER_ENTRIES, 0);
+  }
+  this->block_boundary_filter[(pc >> 1) & (BOUNDARY_FILTER_ENTRIES - 1)] = 1;
+  this->block_boundary_pcs.emplace(pc);
+}
+
+void M68KEmulator::build_cached_op(CachedOp& op, uint32_t pc) {
+  op.pc = 0xFFFFFFFF;
+  op.call = nullptr;
+  op.ends_block = true;
+  OpRecorder rec{.emu = *this, .pc = pc, .op = op};
+  try {
+    M68KEmulator::decode_instruction(rec);
+  } catch (const std::exception&) {
+    // The instruction (or part of it) cannot be fetched. Leave the entry empty: the caller then runs the classic
+    // decoder, which faults at the same word with the same partial pc advance.
+    op.call = nullptr;
+    return;
+  }
+  if (!op.call) {
+    return; // Invalid encoding; not cached
+  }
+  op.next_pc = rec.pc;
+  op.last_addr = rec.pc - 1;
+  op.num_bytes = (rec.num_bytes <= sizeof(CachedOp::bytes)) ? rec.num_bytes : 0;
+  op.gen0 = this->mem->page_write_gen(pc);
+  op.gen1 = this->mem->page_write_gen(op.last_addr);
+  op.pc = pc;
+}
+
+bool M68KEmulator::revalidate_cached_op(CachedOp& op) {
+  // Something on the instruction's page(s) was written since it was decoded. If its own bytes are unchanged, the
+  // decode still stands; adopt the new generations so later visits take the fast path again.
+  if (op.num_bytes == 0) {
+    return false;
+  }
+  try {
+    if (::memcmp(this->mem->at<uint8_t>(op.pc, op.num_bytes), op.bytes, op.num_bytes) != 0) {
+      return false;
+    }
+  } catch (const std::out_of_range&) {
+    return false; // No longer fetchable as one span; let the rebuild (and then the classic decoder) sort it out
+  }
+  op.gen0 = this->mem->page_write_gen(op.pc);
+  op.gen1 = this->mem->page_write_gen(op.last_addr);
+  return true;
+}
+
+void M68KEmulator::execute_blocks() {
+  if (this->op_cache.empty()) {
+    this->op_cache.resize(OP_CACHE_ENTRIES);
+  }
+
+  // True when the previous instruction may have redirected control (and at the start of every execute() call).
+  bool at_block_entry = true;
+  for (;;) {
+    try {
+      for (;;) {
+        // Same order as execute_one: hook, then the interrupt manager, then fetch at whatever pc those left behind.
+        // The hook runs at most ONCE per instruction even if it retargets pc, as in the classic loop.
+        if (this->debug_hook) {
+          bool run_hook = at_block_entry || this->hook_every_instruction;
+          if (!run_hook && !this->block_boundary_filter.empty()) {
+            uint32_t hook_pc = this->regs.pc;
+            run_hook = this->block_boundary_filter[(hook_pc >> 1) & (BOUNDARY_FILTER_ENTRIES - 1)] &&
+                this->block_boundary_pcs.count(hook_pc);
+          }
+          if (run_hook) {
+            this->debug_hook(*this);
+          }
+        }
+        if (this->interrupt_manager) {
+          this->interrupt_manager->on_cycle_start();
+        }
+
+        uint32_t pc = this->regs.pc;
+        CachedOp& op = this->op_cache[(pc >> 1) & (OP_CACHE_ENTRIES - 1)];
+        if (op.pc != pc) {
+          this->build_cached_op(op, pc);
+        } else if ((op.gen0 != this->mem->page_write_gen(pc)) || (op.gen1 != this->mem->page_write_gen(op.last_addr))) {
+          if (!this->revalidate_cached_op(op)) {
+            this->build_cached_op(op, pc);
+          }
+        }
+
+        if ((op.pc == pc) && op.call) {
+          // All of the instruction's words were read before its handler ran in the classic loop too, so pc is the
+          // same value there at this point.
+          this->regs.pc = op.next_pc;
+          at_block_entry = op.ends_block;
+          op.call(*this, op);
+        } else {
+          at_block_entry = true;
+          M68KEmulator::decode_instruction(*this);
+        }
+
+        this->instructions_executed++;
+      }
+    } catch (const terminate_emulation&) {
+      break;
+    }
+  }
+}
+
 void M68KEmulator::execute_one() {
   // Call debug hook if present
   if (this->debug_hook) {
@@ -4718,6 +4933,11 @@ void M68KEmulator::execute_one() {
 void M68KEmulator::execute() {
   if (!this->interrupt_manager.get()) {
     this->interrupt_manager = std::make_shared<InterruptManager>();
+  }
+
+  if (this->block_execution) {
+    this->execute_blocks();
+    return;
   }
 
   for (;;) {

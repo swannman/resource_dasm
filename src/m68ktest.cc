@@ -2,6 +2,8 @@
 #include <string.h>
 
 #include <filesystem>
+#include <map>
+#include <memory>
 #include <phosg/Arguments.hh>
 #include <phosg/Filesystem.hh>
 #include <phosg/Random.hh>
@@ -9,6 +11,7 @@
 #include <phosg/Tools.hh>
 #include <random>
 #include <stdexcept>
+#include <vector>
 
 #include "Emulators/M68KEmulator.hh"
 #include "Emulators/PPC32Emulator.hh"
@@ -182,6 +185,154 @@ bool run_68k_emulator_test(uint32_t start_opcode = 0, uint32_t end_opcode = 0x10
   return true;
 }
 
+// Checks that M68KEmulator's cached block execution is indistinguishable from the classic loop: same registers,
+// memory and cycle count, the same view from an interrupt callback, self-modifying code observed immediately, and
+// the debug hook called exactly where the block contract says it is.
+bool run_68k_block_execution_test() {
+  static constexpr uint32_t CODE = 0x00100000;
+  static constexpr uint32_t DATA = 0x00800000;
+  static const std::vector<uint16_t> program{
+      /* +00 */ 0x203C, 0x0000, 0x03E8, // move.l  d0, 1000
+      /* +06 */ 0x7200, //                 moveq   d1, 0
+      /* +08 */ 0x41F9, 0x0080, 0x0000, // lea     a0, [DATA]
+      /* +0E */ 0xD280, //                 add.l   d1, d0             (loop head)
+      /* +10 */ 0x2081, //                 move.l  [a0], d1
+      /* +12 */ 0x6100, 0x0010, //         bsr.w   +24
+      /* +16 */ 0x5380, //                 subq.l  d0, 1
+      /* +18 */ 0x66F4, //                 bne.s   +0E
+      /* +1A */ 0xA9F4, //                 syscall (the handler ends the run)
+      /* +1C */ 0x4E71, 0x4E71, 0x4E71, 0x4E71,
+      /* +24 */ 0x5281, //                 addq.l  d1, 1              (patched to addq.l d1, 2 when d0 == 500)
+      /* +26 */ 0x0C80, 0x0000, 0x01F4, // cmpi.l  d0, 500
+      /* +2C */ 0x6608, //                 bne.s   +36
+      /* +2E */ 0x33FC, 0x5481, 0x0010, 0x0024, // move.w [CODE + 24], 0x5481
+      /* +36 */ 0x4E75, //                 rts
+  };
+
+  struct Result {
+    ResourceDASM::M68KEmulator::Regs regs;
+    uint64_t cycles = 0;
+    uint32_t stored = 0;
+    uint64_t hook_calls = 0;
+    std::map<uint32_t, uint64_t> hook_calls_at;
+    uint32_t interrupt_pc = 0;
+    uint32_t interrupt_d1 = 0;
+  };
+  enum class Mode {
+    CLASSIC,
+    BLOCKS,
+    BLOCKS_WITH_BOUNDARY,
+    BLOCKS_HOOK_EVERY_INSTRUCTION,
+  };
+
+  auto run = [&](Mode mode) -> Result {
+    auto mem = std::make_shared<ResourceDASM::MemoryContext>();
+    mem->allocate_at(CODE, 0x1000);
+    mem->allocate_at(DATA, 0x1000);
+    for (size_t z = 0; z < program.size(); z++) {
+      mem->write_u16b(CODE + z * 2, program[z]);
+    }
+
+    Result ret;
+    ResourceDASM::M68KEmulator emu(mem);
+    auto& regs = emu.registers();
+    regs.pc = CODE;
+    // The stack shares the code's page on purpose: every bsr then bumps that page's write generation, so every cached
+    // instruction is revalidated against its bytes on every pass — the case real 68K programs put the cache in.
+    regs.a[7] = CODE + 0x0800;
+    emu.set_syscall_handler([](ResourceDASM::M68KEmulator&, uint16_t) {
+      throw ResourceDASM::M68KEmulator::terminate_emulation();
+    });
+    emu.set_debug_hook([&](ResourceDASM::M68KEmulator& e) {
+      ret.hook_calls++;
+      ret.hook_calls_at[e.registers().pc]++;
+    });
+    auto im = std::make_shared<ResourceDASM::InterruptManager>();
+    im->add(5000, [&]() -> bool {
+      ret.interrupt_pc = emu.registers().pc;
+      ret.interrupt_d1 = emu.registers().d[1].u;
+      return true;
+    });
+    emu.set_interrupt_manager(im);
+
+    if (mode != Mode::CLASSIC) {
+      emu.set_block_execution(true);
+    }
+    if (mode == Mode::BLOCKS_WITH_BOUNDARY) {
+      emu.add_block_boundary_pc(CODE + 0x26);
+    }
+    if (mode == Mode::BLOCKS_HOOK_EVERY_INSTRUCTION) {
+      emu.set_hook_every_instruction(true);
+    }
+    emu.execute();
+
+    ret.regs = emu.registers();
+    ret.cycles = emu.cycles();
+    ret.stored = mem->read_u32b(DATA);
+    return ret;
+  };
+
+  bool ok = true;
+  auto expect_eq = [&](const char* mode, const char* what, uint64_t actual, uint64_t expected) {
+    if (actual != expected) {
+      phosg::fwrite_fmt(stderr, "block execution test FAILED: [{}] {} is {} (0x{:X}); expected {} (0x{:X})\n",
+          mode, what, actual, actual, expected, expected);
+      ok = false;
+    }
+  };
+
+  auto classic = run(Mode::CLASSIC);
+  // 501 passes add 1 in the subroutine before the patch lands (d0 = 1000..500) and 499 passes add 2 after it
+  expect_eq("classic", "d1", classic.regs.d[1].u, 500500 + 501 + 2 * 499);
+  expect_eq("classic", "cycles", classic.cycles, 3 + 9 * 1000 + 1);
+  expect_eq("classic", "hook calls", classic.hook_calls, classic.cycles + 1); // +1: the terminating syscall
+
+  auto check_same_as_classic = [&](const char* mode, const Result& r) {
+    for (size_t z = 0; z < 8; z++) {
+      expect_eq(mode, "a data register", r.regs.d[z].u, classic.regs.d[z].u);
+      expect_eq(mode, "an address register", r.regs.a[z], classic.regs.a[z]);
+    }
+    expect_eq(mode, "pc", r.regs.pc, classic.regs.pc);
+    expect_eq(mode, "sr", r.regs.sr.u, classic.regs.sr.u);
+    expect_eq(mode, "cycles", r.cycles, classic.cycles);
+    expect_eq(mode, "stored value", r.stored, classic.stored);
+    expect_eq(mode, "pc seen by the interrupt callback", r.interrupt_pc, classic.interrupt_pc);
+    expect_eq(mode, "d1 seen by the interrupt callback", r.interrupt_d1, classic.interrupt_d1);
+  };
+  auto calls_at = [](const Result& r, uint32_t offset) -> uint64_t {
+    auto it = r.hook_calls_at.find(CODE + offset);
+    return (it == r.hook_calls_at.end()) ? 0 : it->second;
+  };
+
+  auto blocks = run(Mode::BLOCKS);
+  check_same_as_classic("blocks", blocks);
+  // Block entries: the first instruction, the bsr target, the rts landing, both outcomes of each bne
+  expect_eq("blocks", "hook calls", blocks.hook_calls, 1 + 1000 + 1000 + 999 + 1 + 999 + 1);
+  expect_eq("blocks", "hook calls at the loop head", calls_at(blocks, 0x0E), 999);
+  expect_eq("blocks", "hook calls at the subroutine entry", calls_at(blocks, 0x24), 1000);
+  expect_eq("blocks", "hook calls at the return landing", calls_at(blocks, 0x16), 1000);
+  expect_eq("blocks", "hook calls mid-block", calls_at(blocks, 0x26), 0);
+
+  auto boundary = run(Mode::BLOCKS_WITH_BOUNDARY);
+  check_same_as_classic("blocks+boundary", boundary);
+  expect_eq("blocks+boundary", "hook calls", boundary.hook_calls, blocks.hook_calls + 1000);
+  expect_eq("blocks+boundary", "hook calls at the boundary", calls_at(boundary, 0x26), 1000);
+
+  auto every = run(Mode::BLOCKS_HOOK_EVERY_INSTRUCTION);
+  check_same_as_classic("blocks+hook-every-instruction", every);
+  expect_eq("blocks+hook-every-instruction", "hook calls", every.hook_calls, classic.hook_calls);
+  if (every.hook_calls_at != classic.hook_calls_at) {
+    phosg::fwrite_fmt(stderr,
+        "block execution test FAILED: [blocks+hook-every-instruction] per-pc hook calls differ\n");
+    ok = false;
+  }
+
+  if (ok) {
+    phosg::fwrite_fmt(stderr, "block execution test passed\n");
+  }
+  return ok;
+}
+
 int main(int argc, char** argv) {
   phosg::Arguments args(argv + 1, argc - 1);
 
@@ -206,6 +357,9 @@ int main(int argc, char** argv) {
         phosg::parse_data_string(args.get<std::string>("start-opcode", false)),
         args.get<bool>("stop-on-failure"),
         args.get<bool>("verbose"));
+
+  } else if (args.get<bool>("test-block-execution-68k")) {
+    return !run_68k_block_execution_test();
 
   } else if (args.get<bool>("test-exec-68k")) {
     return !run_68k_emulator_test(
