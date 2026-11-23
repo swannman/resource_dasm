@@ -437,6 +437,8 @@ MemoryContext::Arena* MemoryContext::create_arena(uint32_t addr, size_t size) {
   this->arenas_by_host_addr.emplace(arena->host_addr, arena);
   for (uint32_t z = this->page_number_for_addr(arena->addr); z <= end_page_num; z++) {
     this->arena_for_page_number[z] = arena;
+    // A mapping change replaces the page's contents as surely as a write does; decode caches must see it.
+    this->page_write_gens[z]++;
   }
 
   // Update stats
@@ -468,6 +470,7 @@ void MemoryContext::delete_arena(Arena* arena) {
       throw std::logic_error("arena did not have all valid page pointers at deletion time");
     }
     this->arena_for_page_number[z] = nullptr;
+    this->page_write_gens[z]++;
   }
 
   // Update stats. Note that allocated_bytes may not be zero since free() has a shortcut where it doesn't update
